@@ -1,0 +1,432 @@
+/* ===================================
+   MODAL DE FILTROS DE STORY
+   =================================== */
+
+.story-filters-modal {
+    display: none;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.8);
+    z-index: 9999;
+    backdrop-filter: blur(10px);
+}
+
+.story-filters-content {
+    position: relative;
+    width: 90%;
+    max-width: 900px;
+    height: 80vh;
+    max-height: 700px;
+    margin: 5vh auto;
+    background: rgba(20, 20, 30, 0.95);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    backdrop-filter: blur(20px);
+    box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+
+.story-filters-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 20px 24px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(57, 255, 20, 0.05);
+}
+
+.story-filters-header h3 {
+    margin: 0;
+    font-size: 1.3rem;
+    font-weight: 600;
+    background: linear-gradient(135deg, var(--brand) 0%, var(--accent) 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+}
+
+.story-filters-close-btn {
+    background: none;
+    border: none;
+    color: var(--text-muted);
+    font-size: 24px;
+    cursor: pointer;
+    padding: 4px;
+    border-radius: 4px;
+    transition: all 0.2s;
+}
+
+.story-filters-close-btn:hover {
+    background: rgba(244, 63, 94, 0.1);
+    color: var(--accent);
+}
+
+.story-filters-body {
+    display: flex;
+    flex: 1;
+    overflow: hidden;
+}
+
+.story-preview-section {
+    flex: 1;
+    padding: 20px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.story-preview-container {
+    width: 100%;
+    height: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 12px;
+    overflow: hidden;
+}
+
+.story-preview-img,
+.story-preview-video {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
+.story-filters-section {
+    flex: 1;
+    padding: 20px;
+    border-left: 1px solid var(--border);
+    overflow-y: auto;
+}
+
+.story-filters-section h4 {
+    margin: 0 0 16px 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text);
+}
+
+.filters-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+    gap: 12px;
+}
+
+.filter-item {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    padding: 12px;
+    border-radius: 12px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 2px solid transparent;
+}
+
+.filter-item:hover {
+    background: rgba(57, 255, 20, 0.1);
+    transform: translateY(-2px);
+}
+
+.filter-item.active {
+    background: rgba(57, 255, 20, 0.2);
+    border-color: var(--accent);
+    box-shadow: 0 0 20px rgba(57, 255, 20, 0.3);
+}
+
+.filter-preview {
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    margin-bottom: 4px;
+}
+
+.filter-item span {
+    font-size: 0.8rem;
+    color: var(--text-secondary);
+    text-align: center;
+}
+
+.story-filters-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: 12px;
+    padding: 20px 24px;
+    border-top: 1px solid var(--border);
+    background: rgba(0, 0, 0, 0.2);
+}
+
+.story-filters-cancel-btn {
+    padding: 12px 24px;
+    background: rgba(255, 255, 255, 0.1);
+    color: var(--text);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    transition: all 0.2s;
+}
+
+.story-filters-cancel-btn:hover {
+    background: rgba(255, 255, 255, 0.15);
+}
+
+.story-filters-post-btn {
+    padding: 12px 24px;
+    background: linear-gradient(135deg, var(--brand) 0%, var(--accent) 100%);
+    color: white;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 0.9rem;
+    font-weight: 600;
+    transition: all 0.2s;
+    box-shadow: 0 4px 20px rgba(57, 255, 20, 0.3);
+}
+
+.story-filters-post-btn:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 8px 30px rgba(57, 255, 20, 0.4);
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .story-filters-content {
+        width: 95%;
+        height: 90vh;
+        margin: 5vh auto;
+    }
+    
+    .story-filters-body {
+        flex-direction: column;
+    }
+    
+    .story-preview-section {
+        height: 40%;
+        border-bottom: 1px solid var(--border);
+    }
+    
+    .story-filters-section {
+        border-left: none;
+        border-top: 1px solid var(--border);
+    }
+    
+    .filters-grid {
+        grid-template-columns: repeat(auto-fill, minmax(80px, 1fr));
+    }
+    
+    .filter-preview {
+        width: 50px;
+        height: 50px;
+    }
+}
+
+/* ===================================
+   BORDA VERDE NEON PARA STORY ATIVO
+   =================================== */
+
+.user-story.has-story .story-circle {
+    background: linear-gradient(45deg, var(--accent) 0%, var(--brand-light) 25%, var(--accent) 50%, var(--brand-light) 75%, var(--accent) 100%);
+    background-size: 400% 400%;
+    animation: gradient-shift 3s ease infinite, neon-glow 2s ease-in-out infinite alternate;
+    border: 2px solid var(--accent);
+    box-shadow: 0 0 20px rgba(57, 255, 20, 0.5), inset 0 0 20px rgba(57, 255, 20, 0.1);
+}
+
+@keyframes neon-glow {
+    0% {
+        box-shadow: 0 0 20px rgba(57, 255, 20, 0.5), inset 0 0 20px rgba(57, 255, 20, 0.1);
+    }
+    100% {
+        box-shadow: 0 0 30px rgba(57, 255, 20, 0.8), inset 0 0 30px rgba(57, 255, 20, 0.2);
+    }
+}
+
+/* ===================================
+   CONTADOR DE STORIES
+   =================================== */
+
+.story-counter-container {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    padding: 12px 20px;
+    z-index: 10;
+}
+
+.story-counter-dots {
+    display: flex;
+    gap: 4px;
+    justify-content: center;
+    align-items: center;
+    height: 4px;
+}
+
+.story-counter-dot {
+    width: 20px;
+    height: 2px;
+    background: rgba(255, 255, 255, 0.3);
+    border-radius: 1px;
+    transition: all 0.3s ease;
+    cursor: pointer;
+}
+
+.story-counter-dot.viewed {
+    background: rgba(255, 255, 255, 0.8);
+}
+
+.story-counter-dot.current {
+    background: linear-gradient(90deg, var(--accent) 0%, var(--brand-light) 100%);
+    box-shadow: 0 0 8px rgba(57, 255, 20, 0.5);
+    height: 3px;
+}
+
+.story-counter-dot:hover {
+    background: rgba(255, 255, 255, 0.6);
+}
+
+.story-counter-dot.current:hover {
+    background: linear-gradient(90deg, var(--accent) 0%, var(--brand-light) 100%);
+    box-shadow: 0 0 12px rgba(57, 255, 20, 0.7);
+}
+
+/* ===================================
+   BOTÕES DE NAVEGAÇÃO DE STORY
+   =================================== */
+
+.story-nav-btn {
+    position: absolute;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 40px;
+    height: 40px;
+    background: rgba(0, 0, 0, 0.5);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 15;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+}
+
+.story-nav-btn:hover {
+    background: rgba(0, 0, 0, 0.7);
+    transform: translateY(-50%) scale(1.1);
+}
+
+.story-nav-btn:active {
+    transform: translateY(-50%) scale(0.95);
+}
+
+.story-nav-btn svg {
+    width: 20px;
+    height: 20px;
+}
+
+.story-nav-prev {
+    left: 20px;
+}
+
+.story-nav-next {
+    right: 20px;
+}
+
+/* Esconder botões quando não há navegação possível */
+.story-nav-btn.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.story-nav-btn.disabled:hover {
+    background: rgba(0, 0, 0, 0.5);
+    transform: translateY(-50%) scale(1);
+}
+
+/* Responsividade */
+@media (max-width: 768px) {
+    .story-nav-btn {
+        width: 35px;
+        height: 35px;
+    }
+    
+    .story-nav-btn svg {
+        width: 18px;
+        height: 18px;
+    }
+    
+    .story-nav-prev {
+        left: 10px;
+    }
+    
+    .story-nav-next {
+        right: 10px;
+    }
+}
+
+/* ===================================
+   BOTÃO DE EXCLUIR DENTRO DO MODAL
+   =================================== */
+
+.story-delete-modal-btn {
+    position: absolute;
+    top: 20px;
+    right: 60px;
+    width: 36px;
+    height: 36px;
+    background: rgba(244, 63, 94, 0.9);
+    border: none;
+    border-radius: 50%;
+    color: white;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    z-index: 20;
+    transition: all 0.3s ease;
+    backdrop-filter: blur(10px);
+    box-shadow: 0 2px 12px rgba(244, 63, 94, 0.4);
+}
+
+.story-delete-modal-btn:hover {
+    background: rgba(244, 63, 94, 1);
+    transform: scale(1.1);
+    box-shadow: 0 4px 20px rgba(244, 63, 94, 0.6);
+}
+
+.story-delete-modal-btn:active {
+    transform: scale(0.95);
+}
+
+.story-delete-modal-btn svg {
+    width: 18px;
+    height: 18px;
+}
+
+/* Responsividade para botão excluir */
+@media (max-width: 768px) {
+    .story-delete-modal-btn {
+        width: 32px;
+        height: 32px;
+        top: 15px;
+        right: 50px;
+    }
+    
+    .story-delete-modal-btn svg {
+        width: 16px;
+        height: 16px;
+    }
+}

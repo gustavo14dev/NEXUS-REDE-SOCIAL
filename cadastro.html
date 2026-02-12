@@ -1,0 +1,91 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cadastro - Nexus</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body class="auth-page">
+    <!-- Loading Screen -->
+    <div id="loadingScreen" class="loading-screen">
+        <div class="loader"></div>
+        <p>Carregando...</p>
+    </div>
+
+    <div class="auth-container">
+        <div class="auth-card glass">
+            <div class="auth-header">
+                <span class="auth-logo">Nexus</span>
+                <h1 class="auth-title">Criar Conta</h1>
+                <p class="auth-subtitle">Junte-se à rede social que conecta gerações</p>
+            </div>
+
+            <form id="registerForm">
+                <div class="form-group">
+                    <input type="text" id="registerName" class="form-input" placeholder="Seu nome completo" required>
+                </div>
+                <div class="form-group">
+                    <input type="email" id="registerEmail" class="form-input" placeholder="Seu e-mail" required>
+                </div>
+                <div class="form-group">
+                    <input type="password" id="registerPassword" class="form-input" placeholder="Senha (mín. 6 caracteres)" required>
+                </div>
+                <div class="form-group">
+                    <label for="registerBirthDate" class="form-label"></label>
+                    <input type="date" id="registerBirthDate" class="form-input date-input" required max="">
+                </div>
+                <button type="submit" class="auth-btn">Cadastrar</button>
+                <div id="registerError" class="error-message"></div>
+            </form>
+
+            <div class="auth-footer">
+                <p>Já tem uma conta? <a href="login.html">Faça login</a></p>
+            </div>
+        </div>
+        
+        <!-- Apoio Section -->
+        <div class="support-section">
+            <h3 class="support-title">Apoio:</h3>
+            <div class="support-cards">
+                <div class="support-card glass">
+                    <span class="support-name">Nexus</span>
+                </div>
+                <div class="support-card glass">
+                    <span class="support-name">Nexus AI</span>
+                </div>
+                <div class="support-card glass">
+                    <span class="support-name">Nexus Cloud</span>
+                </div>
+                <div class="support-card glass">
+                    <span class="support-name">Drekee AI</span>
+                </div>
+                <div class="support-card glass">
+                    <span class="support-name">Nexus Safe</span>
+                </div>
+                <div class="support-card glass">
+                    <span class="support-name">Sala de Experimentos</span>
+                </div>
+            </div>
+        </div>
+        
+        <a href="index.html" class="back-link">← Voltar para o início</a>
+    </div>
+
+    <!-- Supabase CDN -->
+    <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+    <script src="supabase-config.js"></script>
+    <script src="auth.js"></script>
+    <script>
+        // Definir data máxima como 13 anos atrás
+        document.addEventListener('DOMContentLoaded', () => {
+            const birthDateInput = document.getElementById('registerBirthDate');
+            if (birthDateInput) {
+                const today = new Date();
+                const maxDate = new Date(today.getFullYear() - 13, today.getMonth(), today.getDate());
+                birthDateInput.max = maxDate.toISOString().split('T')[0];
+            }
+        });
+    </script>
+</body>
+</html>

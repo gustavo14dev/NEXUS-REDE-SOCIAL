@@ -1,0 +1,1692 @@
+// Configuração do Supabase Storage
+const BUCKET_NAME = 'midia';
+
+// Estado da aplicação
+let currentUser = null;
+let posts = [];
+let isLoading = false;
+let hasMorePosts = true;
+let currentPage = 1;
+const POSTS_PER_PAGE = 10;
+
+// Elementos do DOM
+const loadingScreen = document.getElementById('loadingScreen');
+const newPostModal = document.getElementById('newPostModal');
+const newPostForm = document.getElementById('newPostForm');
+const postsFeed = document.getElementById('postsFeed');
+const feedLoading = document.getElementById('feedLoading');
+const emptyState = document.getElementById('emptyState');
+const userName = document.getElementById('userName');
+const userClass = document.getElementById('userClass');
+const userAvatar = document.getElementById('userAvatar');
+
+// Profile Setup Elements
+const profileSetupModal = document.getElementById('profileSetupModal');
+const profilePreview = document.getElementById('profilePreview');
+const profileFileInput = document.getElementById('profileFileInput');
+const chooseGalleryBtn = document.getElementById('chooseGalleryBtn');
+const takePhotoBtn = document.getElementById('takePhotoBtn');
+const cameraSection = document.getElementById('cameraSection');
+const cameraPreview = document.getElementById('cameraPreview');
+const captureBtn = document.getElementById('captureBtn');
+const closeProfileSetupBtn = document.getElementById('closeProfileSetupBtn');
+const skipProfileBtn = document.getElementById('skipProfileBtn');
+
+// Comments Elements
+const commentsModal = document.getElementById('commentsModal');
+const commentsPostMedia = document.getElementById('commentsPostMedia');
+const commentsList = document.getElementById('commentsList');
+const commentForm = document.getElementById('commentForm');
+const commentText = document.getElementById('commentText');
+const closeCommentsBtn = document.getElementById('closeCommentsBtn');
+
+// Notifications Elements
+const notificationsBtn = document.getElementById('notificationsBtn');
+const notificationsModal = document.getElementById('notificationsModal');
+const notificationsList = document.getElementById('notificationsList');
+const notificationsBadge = document.getElementById('notificationsBadge');
+const closeNotificationsBtn = document.getElementById('closeNotificationsBtn');
+const emptyNotifications = document.getElementById('emptyNotifications');
+
+// Report Elements
+const reportModal = document.getElementById('reportModal');
+const reportForm = document.getElementById('reportForm');
+const reportReason = document.getElementById('reportReason');
+const reportDescription = document.getElementById('reportDescription');
+const reportError = document.getElementById('reportError');
+const closeReportBtn = document.getElementById('closeReportBtn');
+
+// Profile Setup State
+let cameraStream = null;
+let currentProfileImage = null;
+
+// Comments State
+let currentPostId = null;
+let userLikes = new Set();
+
+// Notifications State
+let notifications = [];
+let unreadCount = 0;
+
+// Report State
+let currentReportTarget = null;
+let currentReportType = null;
+
+// Inicialização da aplicação
+document.addEventListener('DOMContentLoaded', async () => {
+    setupEventListeners();
+    await checkAuthStatus();
+    if (currentUser) {
+        await loadUserProfile();
+        await loadPosts();
+        await loadNotifications();
+        setupRealtime();
+    }
+    hideLoadingScreen();
+});
+
+// Configurar event listeners
+function setupEventListeners() {
+    // Botões
+    const newPostBtn = document.getElementById('newPostBtn');
+    const closeModalBtn = document.getElementById('closeModalBtn');
+    const logoutBtn = document.getElementById('logoutBtn');
+    const uploadBtn = document.getElementById('uploadBtn');
+    const removeMediaBtn = document.getElementById('removeMediaBtn');
+
+    if (newPostBtn) newPostBtn.addEventListener('click', () => {
+        newPostModal.classList.remove('hidden');
+    });
+
+    if (closeModalBtn) closeModalBtn.addEventListener('click', closeNewPostModal);
+    if (logoutBtn) logoutBtn.addEventListener('click', handleLogout);
+    if (uploadBtn) uploadBtn.addEventListener('click', handleMediaUpload);
+    if (removeMediaBtn) removeMediaBtn.addEventListener('click', removeMediaPreview);
+
+    // Formulário
+    if (newPostForm) newPostForm.addEventListener('submit', handleNewPost);
+    
+    // Listener para textarea
+    const postCaption = document.getElementById('postCaption');
+    if (postCaption) {
+        postCaption.addEventListener('input', checkPostReady);
+    }
+
+    // Profile Setup Event Listeners
+    if (chooseGalleryBtn) chooseGalleryBtn.addEventListener('click', () => {
+        profileFileInput.click();
+    });
+
+    if (profileFileInput) profileFileInput.addEventListener('change', handleProfileFileSelect);
+
+    if (takePhotoBtn) takePhotoBtn.addEventListener('click', startCamera);
+
+    if (captureBtn) captureBtn.addEventListener('click', capturePhoto);
+
+    if (closeProfileSetupBtn) closeProfileSetupBtn.addEventListener('click', closeProfileSetup);
+
+    if (skipProfileBtn) skipProfileBtn.addEventListener('click', closeProfileSetup);
+
+    // Comments Event Listeners
+    if (closeCommentsBtn) closeCommentsBtn.addEventListener('click', closeCommentsModal);
+    if (commentForm) commentForm.addEventListener('submit', handleCommentSubmit);
+    
+    // Enter para enviar comentário
+    if (commentText) commentText.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault();
+            handleCommentSubmit(new Event('submit'));
+        }
+    });
+
+    // Infinite scroll
+    window.addEventListener('scroll', handleInfiniteScroll);
+
+    // Fechar modal ao clicar fora
+    if (newPostModal) newPostModal.addEventListener('click', (e) => {
+        if (e.target === newPostModal) {
+            closeNewPostModal();
+        }
+    });
+
+    if (commentsModal) commentsModal.addEventListener('click', (e) => {
+        if (e.target === commentsModal) {
+            closeCommentsModal();
+        }
+    });
+
+    // Notifications Event Listeners
+    if (notificationsBtn) notificationsBtn.addEventListener('click', openNotifications);
+    if (closeNotificationsBtn) closeNotificationsBtn.addEventListener('click', closeNotificationsModal);
+    
+    if (notificationsModal) notificationsModal.addEventListener('click', (e) => {
+        if (e.target === notificationsModal) {
+            closeNotificationsModal();
+        }
+    });
+
+    // Report Event Listeners
+    if (closeReportBtn) closeReportBtn.addEventListener('click', closeReportModal);
+    if (reportForm) reportForm.addEventListener('submit', handleReportSubmit);
+    
+    if (reportModal) reportModal.addEventListener('click', (e) => {
+        if (e.target === reportModal) {
+            closeReportModal();
+        }
+    });
+}
+
+// Verificar status de autenticação
+async function checkAuthStatus() {
+    try {
+        const { data: { session }, error } = await window.supabaseClient.auth.getSession();
+        
+        if (!session?.user || error) {
+            // Redireciona para o index se não estiver logado
+            window.location.href = 'index.html';
+            return;
+        }
+
+        currentUser = session.user;
+    } catch (error) {
+        console.error('Erro ao verificar autenticação:', error);
+        window.location.href = 'index.html';
+    }
+}
+
+// Carregar perfil do usuário
+async function loadUserProfile() {
+    try {
+        const { data, error } = await window.supabaseClient
+            .from('profiles')
+            .select('*')
+            .eq('id', currentUser.id)
+            .single();
+
+        if (error) throw error;
+
+        if (data && userName && userClass) {
+            userName.textContent = data.nome;
+            userClass.textContent = data.turma;
+            
+            if (data.avatar_url && userAvatar) {
+                userAvatar.src = data.avatar_url;
+            } else {
+                // Exibir modal de configuração de perfil se não tiver avatar
+                setTimeout(() => {
+                    showProfileSetup();
+                }, 1000);
+            }
+        }
+    } catch (error) {
+        console.error('Erro ao carregar perfil:', error);
+    }
+}
+
+// Logout
+async function handleLogout() {
+    try {
+        await window.supabaseClient.auth.signOut();
+        window.location.href = 'index.html';
+    } catch (error) {
+        console.error('Erro ao fazer logout:', error);
+    }
+}
+
+// Carregar posts com contagem real do banco
+async function loadPosts(reset = false) {
+    if (isLoading) return;
+    
+    try {
+        isLoading = true;
+        if (reset) {
+            currentPage = 1;
+            posts = [];
+        }
+
+        if (!currentPage || currentPage < 1) {
+            currentPage = 1;
+        }
+        
+        showLoading(postsFeed);
+        
+        const { data, error } = await window.supabaseClient
+            .from('posts')
+            .select(`
+                *,
+                profiles: user_id (
+                    id,
+                    nome,
+                    avatar_url
+                )
+            `)
+            .order('created_at', { ascending: false })
+            .range((currentPage - 1) * POSTS_PER_PAGE, currentPage * POSTS_PER_PAGE - 1);
+
+        if (error) throw error;
+
+        posts = reset ? data : [...posts, ...data];
+        
+        // Carregar likes do usuário
+        await loadUserLikes();
+        
+        // Renderizar posts com contagem real
+        await renderPosts();
+        
+        currentPage++;
+    } catch (error) {
+        console.error('Erro ao carregar posts:', error);
+    } finally {
+        hideLoading(postsFeed);
+        isLoading = false;
+        if (feedLoading) hideLoading(feedLoading);
+    }
+}
+
+// Renderizar posts e carregar informações de quem curtiu
+async function renderPosts() {
+    if (!postsFeed) return;
+    
+    if (posts.length === 0) {
+        postsFeed.innerHTML = `
+            <div class="empty-feed">
+                <div class="empty-icon">📝</div>
+                <h3 class="empty-title">Nenhum post ainda</h3>
+                <p class="empty-description">Seja o primeiro a compartilhar algo!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    postsFeed.innerHTML = posts.map(post => createPostHTML(post)).join('');
+    
+    // Carregar informações de quem curtiu para posts com likes
+    for (const post of posts) {
+        if (post.likes_count > 0) {
+            await loadLikesInfo(post.id);
+        }
+    }
+}
+
+// Criar HTML do post
+function createPostHTML(post) {
+    const profile = post.profiles;
+    const isOwner = profile?.id === currentUser?.id;
+    const isLiked = userLikes.has(post.id);
+    
+    const mediaHTML = post.media_url ? (post.media_type === 'video' 
+        ? `<div class="post-media"><video controls><source src="${post.media_url}" type="video/mp4"></video></div>`
+        : `<div class="post-media"><img src="${post.media_url}" alt="Post" onerror="this.src='data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%22400%22 height=%22300%22 viewBox=%220 0 400 300%22%3E%3Crect width=%22400%22 height=%22300%22 fill=%22%23f3f4f6%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22%239ca3af%22 font-family=%22Arial%22 font-size=%2216%22%3EImagem não encontrada%3C/text%3E%3C/svg%3E'"></div>`) : '';
+
+    return `
+        <div class="post-card glass">
+            <div class="post-header">
+                <img src="${profile?.avatar_url || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2245%22 height=%2245%22 viewBox=%220 0 45 45%22%3E%3Crect width=%2245%22 height=%2245%22 fill=%22%2339FF14%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22white%22 font-family=%22Arial%22 font-size=%2220%22%3E?%3C/text%3E%3C/svg%3E'}" alt="${profile?.nome || 'Usuário'}" class="post-avatar">
+                <div class="post-info">
+                    <h4>${profile?.nome || 'Usuário'}</h4>
+                    <span>${profile?.turma || 'Comunidade'} • ${formatDate(post.created_at)}</span>
+                </div>
+                ${isOwner ? `<button class="delete-post-btn" onclick="deletePost('${post.id}')" title="Excluir post">
+                    <svg class="delete-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M6 19 L6 7 L18 7 L18 19 L16 21 L8 21 L6 19 M19 4 L15 4 L14 3 L9 3 L8 4 L5 4 L5 6 L19 6 L19 4"/>
+                    </svg>
+                </button>` : `<button class="report-post-btn" onclick="openReportModal('${post.id}', 'post')" title="Denunciar post">
+                    <svg class="report-icon" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1 15h-2v-2h2v2zm0-4h-2V7h2v6z"/>
+                    </svg>
+                </button>`}
+            </div>
+            ${post.caption ? `<div class="post-caption">${post.caption}</div>` : ''}
+            ${mediaHTML}
+            <div class="post-actions">
+                <button class="action-btn like-btn ${isLiked ? 'liked' : ''}" onclick="toggleLike('${post.id}')">
+                    <svg class="action-icon" viewBox="0 0 24 24" fill="${isLiked ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
+                        <path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78l1.06 1.06L12 21.23l7.78-7.78 1.06-1.06a5.5 5.5 0 0 0 0-7.78z"></path>
+                    </svg>
+                    <span>${post.likes_count || 0}</span>
+                </button>
+                <button class="action-btn comment-btn" onclick="openComments('${post.id}', '${post.media_url || ''}', '${post.media_type || ''}', '${(post.caption || '').replace(/'/g, "\\'")}')">
+                    <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <span>${post.comments_count || 0}</span>
+                </button>
+                <button class="action-btn share-btn">
+                    <svg class="action-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <circle cx="18" cy="5" r="3"></circle>
+                        <circle cx="6" cy="12" r="3"></circle>
+                        <circle cx="18" cy="19" r="3"></circle>
+                        <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                        <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                    </svg>
+                    <span>${post.shares_count || 0}</span>
+                </button>
+            </div>
+            <div class="post-likes-info" id="likes-info-${post.id}" style="display: none;">
+                <!-- Será preenchido dinamicamente -->
+            </div>
+        </div>
+    `;
+}
+
+// ...
+async function deletePost(postId) {
+    if (!confirm('Tem certeza que deseja excluir este post?')) return;
+    
+    try {
+        showLoading(postsFeed);
+        
+        // Primeiro, deletar a mídia do Storage se existir
+        const post = posts.find(p => p.id === postId);
+        if (post?.media_url) {
+            const filePath = post.media_url.split('/').pop();
+            await window.supabaseClient.storage
+                .from(BUCKET_NAME)
+                .remove([`${currentUser.id}/${filePath}`]);
+        }
+        
+        // Deletar o post do banco
+        const { error } = await window.supabaseClient
+            .from('posts')
+            .delete()
+            .eq('id', postId)
+            .eq('user_id', currentUser.id); // Segurança extra
+        
+        if (error) throw error;
+        
+        // Remover do array e recarregar
+        posts = posts.filter(p => p.id !== postId);
+        renderPosts();
+        
+        showUploadFeedback('Post excluído com sucesso!', 'success');
+    } catch (error) {
+        console.error('Erro ao excluir post:', error);
+        showUploadFeedback('Erro ao excluir post. Tente novamente.', 'error');
+    } finally {
+        hideLoading(postsFeed);
+    }
+}
+
+// Upload de mídia para Supabase Storage
+async function handleMediaUpload() {
+    const input = document.createElement('input');
+    input.type = 'file';
+    input.accept = 'image/*,video/*';
+    input.onchange = async (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        
+        // Mostrar feedback de upload
+        showUploadFeedback('Enviando...');
+        
+        try {
+            const fileName = `${Date.now()}-${file.name}`;
+            const filePath = `${currentUser.id}/${fileName}`;
+            
+            // Upload para o Supabase Storage
+            const { data, error } = await window.supabaseClient.storage
+                .from(BUCKET_NAME)
+                .upload(filePath, file);
+            
+            if (error) throw error;
+            
+            // Obter URL pública
+            const { data: { publicUrl } } = window.supabaseClient.storage
+                .from(BUCKET_NAME)
+                .getPublicUrl(filePath);
+            
+            // Mostrar preview
+            showMediaPreview(publicUrl, file.type);
+            showUploadFeedback('Arquivo enviado com sucesso!', 'success');
+            
+        } catch (error) {
+            console.error('Erro no upload:', error);
+            showUploadFeedback('Erro ao enviar arquivo. Tente novamente.', 'error');
+        }
+    };
+    input.click();
+}
+
+// Feedback de upload verde neon
+function showUploadFeedback(message, type = 'info') {
+    // Remover feedback anterior se existir
+    const existingFeedback = document.querySelector('.upload-feedback');
+    if (existingFeedback) {
+        existingFeedback.remove();
+    }
+    
+    // Criar elemento de feedback
+    const feedback = document.createElement('div');
+    feedback.className = 'upload-feedback';
+    feedback.textContent = message;
+    
+    // Estilo verde neon
+    feedback.style.cssText = `
+        position: fixed;
+        top: 20px;
+        right: 20px;
+        padding: 12px 20px;
+        background: linear-gradient(135deg, rgba(57, 255, 20, 0.9) 0%, rgba(0, 255, 65, 0.9) 100%);
+        color: white;
+        border-radius: 12px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        box-shadow: 0 4px 20px rgba(57, 255, 20, 0.4), 0 0 20px rgba(57, 255, 20, 0.2);
+        z-index: 1000;
+        animation: slideIn 0.3s ease-out;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(57, 255, 20, 0.3);
+    `;
+    
+    if (type === 'error') {
+        feedback.style.background = 'linear-gradient(135deg, rgba(244, 63, 94, 0.9) 0%, rgba(236, 72, 153, 0.9) 100%)';
+        feedback.style.boxShadow = '0 4px 20px rgba(244, 63, 94, 0.4), 0 0 20px rgba(244, 63, 94, 0.2)';
+        feedback.style.borderColor = 'rgba(244, 63, 94, 0.3)';
+    }
+    
+    document.body.appendChild(feedback);
+    
+    // Remover após 3 segundos
+    setTimeout(() => {
+        feedback.style.animation = 'slideOut 0.3s ease-out';
+        setTimeout(() => feedback.remove(), 300);
+    }, 3000);
+}
+
+// Adicionar animações ao CSS
+const uploadStyles = document.createElement('style');
+uploadStyles.textContent = `
+    @keyframes slideIn {
+        from { transform: translateX(100%); opacity: 0; }
+        to { transform: translateX(0); opacity: 1; }
+    }
+    @keyframes slideOut {
+        from { transform: translateX(0); opacity: 1; }
+        to { transform: translateX(100%); opacity: 0; }
+    }
+`;
+document.head.appendChild(uploadStyles);
+
+// Mostrar preview da mídia
+function showMediaPreview(url, type) {
+    const preview = document.getElementById('mediaPreview');
+    const container = document.getElementById('previewContainer');
+    const submitBtn = document.querySelector('.submit-btn');
+    
+    if (preview && container) {
+        preview.src = url;
+        document.getElementById('mediaUrl').value = url;
+        document.getElementById('mediaType').value = type;
+        
+        container.classList.remove('hidden');
+    }
+    
+    // Verificar se o post pode ser publicado
+    checkPostReady();
+}
+
+// Verificar se post está pronto para publicar
+function checkPostReady() {
+    const caption = document.getElementById('postCaption')?.value;
+    const mediaUrl = document.getElementById('mediaUrl')?.value;
+    const submitBtn = document.querySelector('.submit-btn');
+    
+    if (submitBtn) {
+        submitBtn.disabled = !caption && !mediaUrl;
+    }
+}
+
+// Remover preview da mídia
+function removeMediaPreview() {
+    const container = document.getElementById('previewContainer');
+    
+    if (container) {
+        container.classList.add('hidden');
+        document.getElementById('mediaUrl').value = '';
+        document.getElementById('mediaType').value = '';
+    }
+    
+    // Verificar se o post ainda pode ser publicado
+    checkPostReady();
+}
+
+// Criar novo post
+async function handleNewPost(e) {
+    e.preventDefault();
+    
+    const caption = document.getElementById('postCaption')?.value;
+    const mediaUrl = document.getElementById('mediaUrl')?.value;
+    const mediaType = document.getElementById('mediaType')?.value;
+
+    // Permitir posts só com texto ou com mídia
+    if (!caption && !mediaUrl) {
+        showUploadFeedback('Adicione um texto ou uma mídia para postar', 'error');
+        return;
+    }
+
+    try {
+        showLoading(newPostForm);
+
+        const { data, error } = await window.supabaseClient
+            .from('posts')
+            .insert({
+                user_id: currentUser.id,
+                media_url: mediaUrl || null,
+                media_type: mediaType || null,
+                caption: caption || null
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        closeNewPostModal();
+        await loadPosts(true); // Recarregar posts do início
+        showUploadFeedback('Post publicado com sucesso!', 'success');
+    } catch (error) {
+        console.error('Erro ao criar post:', error);
+        showUploadFeedback('Erro ao criar post. Tente novamente.', 'error');
+    } finally {
+        hideLoading(newPostForm);
+    }
+}
+
+// Infinite scroll
+function handleInfiniteScroll() {
+    if (window.innerHeight + window.scrollY >= document.body.offsetHeight - 1000) {
+        loadPosts();
+    }
+}
+
+// Funções utilitárias
+function showLoading(element) {
+    if (!element) return;
+    
+    const btn = element.querySelector('button[type="submit"]');
+    if (btn) {
+        btn.disabled = true;
+        btn.textContent = 'Carregando...';
+    }
+}
+
+function hideLoading(element) {
+    if (!element) return;
+    
+    const btn = element.querySelector('button[type="submit"]');
+    if (btn) {
+        btn.disabled = false;
+        if (element === newPostForm) {
+            btn.textContent = 'Publicar';
+        }
+    }
+}
+
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    const now = new Date();
+    const diffMs = now - date;
+    const diffMins = Math.floor(diffMs / 60000);
+    const diffHours = Math.floor(diffMs / 3600000);
+    const diffDays = Math.floor(diffMs / 86400000);
+
+    if (diffMins < 1) return 'agora';
+    if (diffMins < 60) return `há ${diffMins} min`;
+    if (diffHours < 24) return `há ${diffHours} h`;
+    if (diffDays < 7) return `há ${diffDays} d`;
+    
+    return date.toLocaleDateString('pt-BR');
+}
+
+function closeNewPostModal() {
+    if (newPostModal) {
+        newPostModal.classList.add('hidden');
+        resetNewPostForm();
+    }
+}
+
+function resetNewPostForm() {
+    if (newPostForm) {
+        newPostForm.reset();
+        mediaUrl = null;
+        mediaType = null;
+        removeMediaPreview();
+        checkPostReady();
+    }
+}
+
+// Profile Setup Functions
+function showProfileSetup() {
+    if (profileSetupModal) {
+        profileSetupModal.classList.remove('hidden');
+    }
+}
+
+function closeProfileSetup() {
+    if (profileSetupModal) {
+        profileSetupModal.classList.add('hidden');
+        stopCamera();
+        resetProfileSetup();
+    }
+}
+
+function resetProfileSetup() {
+    currentProfileImage = null;
+    profilePreview.src = 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'120\' height=\'120\' viewBox=\'0 0 120 120\'%3E%3Crect width=\'120\' height=\'120\' fill=\'%2339FF14\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'white\' font-family=\'Arial\' font-size=\'60\'%3E?%3C/text%3E%3C/svg%3E';
+    cameraSection.classList.add('hidden');
+}
+
+function handleProfileFileSelect(event) {
+    const file = event.target.files[0];
+    if (file && file.type.startsWith('image/')) {
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            currentProfileImage = e.target.result;
+            profilePreview.src = currentProfileImage;
+            uploadProfileImage(file);
+        };
+        reader.readAsDataURL(file);
+    }
+}
+
+async function startCamera() {
+    try {
+        cameraStream = await navigator.mediaDevices.getUserMedia({ 
+            video: { facingMode: 'user' } 
+        });
+        cameraPreview.srcObject = cameraStream;
+        cameraSection.classList.remove('hidden');
+    } catch (error) {
+        console.error('Erro ao acessar câmera:', error);
+        alert('Não foi possível acessar a câmera. Verifique as permissões.');
+    }
+}
+
+function stopCamera() {
+    if (cameraStream) {
+        cameraStream.getTracks().forEach(track => track.stop());
+        cameraStream = null;
+        cameraPreview.srcObject = null;
+    }
+}
+
+function capturePhoto() {
+    const canvas = document.createElement('canvas');
+    canvas.width = cameraPreview.videoWidth;
+    canvas.height = cameraPreview.videoHeight;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(cameraPreview, 0, 0);
+    
+    canvas.toBlob((blob) => {
+        const file = new File([blob], 'profile.jpg', { type: 'image/jpeg' });
+        const reader = new FileReader();
+        reader.onload = (e) => {
+            currentProfileImage = e.target.result;
+            profilePreview.src = currentProfileImage;
+            uploadProfileImage(file);
+        };
+        reader.readAsDataURL(file);
+    }, 'image/jpeg', 0.8);
+    
+    stopCamera();
+    cameraSection.classList.add('hidden');
+}
+
+async function uploadProfileImage(file) {
+    try {
+        showLoading(profileSetupModal);
+        
+        const fileName = `${currentUser.id}/profile.jpg`;
+        const { data, error } = await window.supabaseClient.storage
+            .from('avatars')
+            .upload(fileName, file, {
+                cacheControl: '3600',
+                upsert: true
+            });
+
+        if (error) throw error;
+
+        // Obter URL pública
+        const { data: { publicUrl } } = window.supabaseClient.storage
+            .from('avatars')
+            .getPublicUrl(fileName);
+
+        // Atualizar perfil
+        const { error: updateError } = await window.supabaseClient
+            .from('profiles')
+            .update({ avatar_url: publicUrl })
+            .eq('id', currentUser.id);
+
+        if (updateError) throw updateError;
+
+        // Atualizar avatar no header
+        if (userAvatar) {
+            userAvatar.src = publicUrl;
+        }
+
+        // Fechar modal após sucesso
+        setTimeout(() => {
+            closeProfileSetup();
+        }, 1000);
+
+    } catch (error) {
+        console.error('Erro ao fazer upload da foto de perfil:', error);
+        alert('Erro ao fazer upload da foto. Tente novamente.');
+    } finally {
+        hideLoading(profileSetupModal);
+    }
+}
+
+function hideLoadingScreen() {
+    if (loadingScreen) {
+        setTimeout(() => {
+            loadingScreen.style.opacity = '0';
+            setTimeout(() => {
+                loadingScreen.classList.add('hidden');
+            }, 300);
+        }, 500);
+    }
+}
+
+// Funções de Interação Social
+
+// Carregar likes do usuário e quem curtiu
+async function loadUserLikes() {
+    try {
+        const { data, error } = await window.supabaseClient
+            .from('likes')
+            .select('post_id')
+            .eq('user_id', currentUser.id);
+
+        if (error) throw error;
+
+        userLikes = new Set(data.map(like => like.post_id));
+    } catch (error) {
+        console.error('Erro ao carregar likes:', error);
+    }
+}
+
+// Buscar quem curtiu o post mais recente
+async function getLatestLike(postId) {
+    try {
+        const { data, error } = await window.supabaseClient
+            .from('likes')
+            .select(`
+                profiles: user_id (
+                    id,
+                    nome,
+                    avatar_url
+                )
+            `)
+            .eq('post_id', postId)
+            .order('created_at', { ascending: false })
+            .limit(1)
+            .single();
+
+        if (error) throw error;
+        
+        return data?.profiles;
+    } catch (error) {
+        console.error('Erro ao buscar like recente:', error);
+        return null;
+    }
+}
+
+// Toggle like usando RPC function para garantir consistência
+async function toggleLike(postId) {
+    try {
+        // Usar RPC function para toggle like com atualização automática
+        const { data, error } = await window.supabaseClient
+            .rpc('toggle_post_like', {
+                post_uuid: postId,
+                user_uuid: currentUser.id
+            });
+
+        if (error) throw error;
+
+        const result = data[0]; // { liked: boolean, total_likes: integer }
+        
+        // Atualizar estado local
+        if (result.liked) {
+            userLikes.add(postId);
+        } else {
+            userLikes.delete(postId);
+        }
+        
+        // Atualizar contador no post localmente
+        const post = posts.find(p => p.id === postId);
+        if (post) {
+            post.likes_count = result.total_likes;
+        }
+        
+        // Re-renderizar posts para atualizar UI
+        await renderPosts();
+        
+    } catch (error) {
+        console.error('Erro ao fazer toggle like:', error);
+        alert('Erro ao curtir/descurtir post. Tente novamente.');
+    }
+}
+
+// Abrir modal de comentários
+async function openComments(postId, mediaUrl, mediaType, caption) {
+    try {
+        currentPostId = postId;
+        
+        // Configurar mídia do post
+        if (commentsPostMedia) {
+            let mediaHTML = '';
+            
+            if (mediaUrl) {
+                if (mediaType === 'video') {
+                    mediaHTML = `<video class="comments-post-video" controls><source src="${mediaUrl}" type="video/mp4"></video>`;
+                } else {
+                    mediaHTML = `<img src="${mediaUrl}" alt="Post" class="comments-post-image">`;
+                }
+            } else if (caption) {
+                // Se não tem mídia mas tem texto, mostrar o texto
+                mediaHTML = `<div class="comments-post-text">${caption}</div>`;
+            } else {
+                // Se não tem nada, mostrar placeholder
+                mediaHTML = `<div class="comments-post-text">Post sem conteúdo</div>`;
+            }
+            
+            commentsPostMedia.innerHTML = mediaHTML;
+        }
+        
+        // Carregar comentários
+        await loadComments();
+        
+        // Abrir modal
+        if (commentsModal) {
+            commentsModal.classList.remove('hidden');
+        }
+        
+    } catch (error) {
+        console.error('Erro ao abrir comentários:', error);
+    }
+}
+
+// Carregar comentários do post
+async function loadComments() {
+    try {
+        const { data, error } = await window.supabaseClient
+            .from('comments')
+            .select(`
+                *,
+                profiles: user_id (
+                    id,
+                    nome,
+                    avatar_url
+                )
+            `)
+            .eq('post_id', currentPostId)
+            .order('created_at', { ascending: true });
+
+        if (error) throw error;
+
+        renderComments(data);
+        
+    } catch (error) {
+        console.error('Erro ao carregar comentários:', error);
+    }
+}
+
+// Renderizar comentários
+function renderComments(comments) {
+    if (!commentsList) return;
+    
+    if (comments.length === 0) {
+        commentsList.innerHTML = `
+            <div class="empty-comments">
+                <p>Nenhum comentário ainda. Seja o primeiro a comentar!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    commentsList.innerHTML = comments.map(comment => `
+        <div class="comment-item">
+            <img src="${comment.profiles?.avatar_url || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2236%22 height=%2236%22 viewBox=%220 0 36 36%22%3E%3Crect width=%2236%22 height=%2236%22 fill=%22%2339FF14%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22white%22 font-family=%22Arial%22 font-size=%2218%22%3E?%3C/text%3E%3C/svg%3E'}" alt="${comment.profiles?.nome || 'Usuário'}" class="comment-avatar">
+            <div class="comment-content">
+                <div class="comment-header">
+                    <span class="comment-author">${comment.profiles?.nome || 'Usuário'}</span>
+                    <span class="comment-time">${formatDate(comment.created_at)}</span>
+                </div>
+                <div class="comment-text">${comment.content}</div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Enviar comentário
+async function handleCommentSubmit(event) {
+    event.preventDefault();
+    
+    if (!commentText || !commentText.value.trim()) return;
+    
+    try {
+        const { error } = await window.supabaseClient
+            .from('comments')
+            .insert({
+                post_id: currentPostId,
+                user_id: currentUser.id,
+                content: commentText.value.trim()
+            });
+        
+        if (error) throw error;
+        
+        // Limpar campo
+        commentText.value = '';
+        
+        // Recarregar comentários
+        await loadComments();
+        
+        // Atualizar contador no post
+        const post = posts.find(p => p.id === currentPostId);
+        if (post) {
+            post.comments_count = (post.comments_count || 0) + 1;
+            renderPosts();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao enviar comentário:', error);
+        alert('Erro ao enviar comentário. Tente novamente.');
+    }
+}
+
+// Fechar modal de comentários
+function closeCommentsModal() {
+    if (commentsModal) {
+        commentsModal.classList.add('hidden');
+        currentPostId = null;
+        if (commentText) commentText.value = '';
+    }
+}
+
+// Funções de Notificações
+
+// Carregar notificações do usuário
+async function loadNotifications() {
+    try {
+        const { data, error } = await window.supabaseClient
+            .from('notifications')
+            .select('*')
+            .eq('user_id', currentUser.id)
+            .order('created_at', { ascending: false })
+            .limit(50);
+
+        if (error) throw error;
+
+        // Buscar perfis dos atores separadamente
+        if (data && data.length > 0) {
+            const actorIds = [...new Set(data.map(n => n.actor_id).filter(id => id))];
+            
+            if (actorIds.length > 0) {
+                const { data: profiles } = await window.supabaseClient
+                    .from('profiles')
+                    .select('id, nome, avatar_url')
+                    .in('id', actorIds);
+                
+                // Mapear perfis para fácil acesso
+                const profilesMap = {};
+                if (profiles) {
+                    profiles.forEach(profile => {
+                        profilesMap[profile.id] = profile;
+                    });
+                }
+                
+                // Adicionar perfil a cada notificação
+                notifications = data.map(notification => ({
+                    ...notification,
+                    profiles: profilesMap[notification.actor_id] || null
+                }));
+            } else {
+                notifications = data || [];
+            }
+        } else {
+            notifications = [];
+        }
+        
+        updateNotificationsBadge();
+        
+    } catch (error) {
+        console.error('Erro ao carregar notificações:', error);
+    }
+}
+
+// Atualizar badge de notificações
+function updateNotificationsBadge() {
+    unreadCount = notifications.filter(n => !n.read).length;
+    
+    if (notificationsBadge) {
+        if (unreadCount > 0) {
+            notificationsBadge.textContent = unreadCount > 99 ? '99+' : unreadCount;
+            notificationsBadge.classList.remove('hidden');
+        } else {
+            notificationsBadge.classList.add('hidden');
+        }
+    }
+}
+
+// Abrir modal de notificações
+async function openNotifications() {
+    try {
+        if (notificationsModal) {
+            notificationsModal.classList.remove('hidden');
+            await renderNotifications();
+        }
+    } catch (error) {
+        console.error('Erro ao abrir notificações:', error);
+    }
+}
+
+// Fechar modal de notificações
+function closeNotificationsModal() {
+    if (notificationsModal) {
+        notificationsModal.classList.add('hidden');
+    }
+}
+
+// Renderizar notificações
+async function renderNotifications() {
+    if (!notificationsList) return;
+    
+    if (notifications.length === 0) {
+        notificationsList.classList.add('hidden');
+        if (emptyNotifications) emptyNotifications.classList.remove('hidden');
+        return;
+    }
+    
+    notificationsList.classList.remove('hidden');
+    if (emptyNotifications) emptyNotifications.classList.add('hidden');
+    
+    notificationsList.innerHTML = notifications.map(notification => `
+        <div class="notification-item ${!notification.read ? 'unread' : ''}" onclick="markNotificationAsRead('${notification.id}')">
+            <img src="${notification.profiles?.avatar_url || 'data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 width=%2240%22 height=%2240%22 viewBox=%220 0 40 40%22%3E%3Crect width=%2240%22 height=%2240%22 fill=%22%2339FF14%22/%3E%3Ctext x=%2250%25%22 y=%2250%25%22 text-anchor=%22middle%22 dy=%22.3em%22 fill=%22white%22 font-family=%22Arial%22 font-size=%2220%22%3E?%3C/text%3E%3C/svg%3E'}" alt="${notification.profiles?.nome || 'Usuário'}" class="notification-avatar">
+            <div class="notification-content">
+                <div class="notification-text">
+                    <strong>${notification.profiles?.nome || 'Alguém'}</strong> ${notification.content}
+                </div>
+                <div class="notification-time">${formatDate(notification.created_at)}</div>
+                <div class="notification-type ${notification.type}">
+                    ${notification.type === 'like' ? '❤️ Curtiu' : '💬 Comentou'}
+                </div>
+            </div>
+        </div>
+    `).join('');
+}
+
+// Marcar notificação como lida
+async function markNotificationAsRead(notificationId) {
+    try {
+        const { error } = await window.supabaseClient
+            .from('notifications')
+            .update({ read: true })
+            .eq('id', notificationId)
+            .eq('user_id', currentUser.id);
+
+        if (error) throw error;
+
+        // Atualizar estado local
+        const notification = notifications.find(n => n.id === notificationId);
+        if (notification) {
+            notification.read = true;
+            updateNotificationsBadge();
+            await renderNotifications();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao marcar notificação como lida:', error);
+    }
+}
+
+// Setup de Realtime
+function setupRealtime() {
+    // Realtime para novos posts
+    const postsChannel = window.supabaseClient
+        .channel('posts_changes')
+        .on('postgres_changes', 
+            { 
+                event: 'INSERT', 
+                schema: 'public', 
+                table: 'posts' 
+            },
+            async (payload) => {
+                // Novo post criado - adicionar ao topo do feed
+                const newPost = payload.new;
+                
+                // Buscar dados completos do post com perfil
+                const { data: postData } = await window.supabaseClient
+                    .from('posts')
+                    .select(`
+                        *,
+                        profiles: user_id (
+                            id,
+                            nome,
+                            turma,
+                            avatar_url
+                        )
+                    `)
+                    .eq('id', newPost.id)
+                    .single();
+                
+                if (postData) {
+                    // Adicionar ao topo do array com animação
+                    posts.unshift(postData);
+                    
+                    // Renderizar com animação de entrada
+                    const postHTML = createPostHTML(postData);
+                    const tempDiv = document.createElement('div');
+                    tempDiv.innerHTML = postHTML;
+                    const newPostElement = tempDiv.firstElementChild;
+                    
+                    // Adicionar classe de animação
+                    newPostElement.style.animation = 'slideInFromTop 0.5s ease-out';
+                    
+                    // Inserir no topo do feed
+                    if (postsFeed) {
+                        postsFeed.insertBefore(newPostElement, postsFeed.firstChild);
+                        
+                        // Remover animação após completar
+                        setTimeout(() => {
+                            newPostElement.style.animation = '';
+                        }, 500);
+                    }
+                    
+                    // Mostrar feedback visual
+                    showNewPostNotification();
+                }
+            }
+        )
+        .subscribe();
+
+    // Realtime para novas notificações
+    const notificationsChannel = window.supabaseClient
+        .channel('notifications_changes')
+        .on('postgres_changes',
+            {
+                event: 'INSERT',
+                schema: 'public',
+                table: 'notifications',
+                filter: `user_id=eq.${currentUser.id}`
+            },
+            async (payload) => {
+                // Nova notificação recebida
+                const newNotification = payload.new;
+                
+                // Buscar perfil do ator separadamente
+                if (newNotification.actor_id) {
+                    const { data: profileData } = await window.supabaseClient
+                        .from('profiles')
+                        .select('id, nome, avatar_url')
+                        .eq('id', newNotification.actor_id)
+                        .single();
+                    
+                    // Adicionar perfil à notificação
+                    const notificationData = {
+                        ...newNotification,
+                        profiles: profileData
+                    };
+                    
+                    // Adicionar ao topo das notificações
+                    notifications.unshift(notificationData);
+                    updateNotificationsBadge();
+                    
+                    // Mostrar feedback visual
+                    showNotificationFeedback(notificationData);
+                }
+            }
+        )
+        .subscribe();
+}
+
+// Feedback visual para novo post
+function showNewPostNotification() {
+    const feedback = document.createElement('div');
+    feedback.className = 'new-post-notification';
+    feedback.innerHTML = `
+        <div class="notification-content">
+            <span class="notification-icon">📸</span>
+            <span class="notification-text">Novo post no feed!</span>
+        </div>
+    `;
+    
+    feedback.style.cssText = `
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        background: linear-gradient(135deg, rgba(57, 255, 20, 0.9) 0%, rgba(0, 255, 65, 0.9) 100%);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 12px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        box-shadow: 0 4px 20px rgba(57, 255, 20, 0.4);
+        z-index: 1000;
+        animation: slideInFromRight 0.5s ease-out;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(57, 255, 20, 0.3);
+    `;
+    
+    document.body.appendChild(feedback);
+    
+    // Remover após 3 segundos
+    setTimeout(() => {
+        feedback.style.animation = 'slideOutToRight 0.3s ease-out';
+        setTimeout(() => feedback.remove(), 300);
+    }, 3000);
+}
+
+// Feedback visual para nova notificação
+function showNotificationFeedback(notification) {
+    const feedback = document.createElement('div');
+    feedback.className = 'notification-feedback';
+    feedback.innerHTML = `
+        <div class="notification-content">
+            <span class="notification-icon">${notification.type === 'like' ? '❤️' : '💬'}</span>
+            <span class="notification-text">${notification.profiles?.nome || 'Alguém'} ${notification.type === 'like' ? 'curtiu' : 'comentou'}</span>
+        </div>
+    `;
+    
+    feedback.style.cssText = `
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        background: linear-gradient(135deg, rgba(57, 255, 20, 0.9) 0%, rgba(0, 255, 65, 0.9) 100%);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 12px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        box-shadow: 0 4px 20px rgba(57, 255, 20, 0.4);
+        z-index: 1000;
+        animation: slideInFromRight 0.5s ease-out;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(57, 255, 20, 0.3);
+    `;
+    
+    document.body.appendChild(feedback);
+    
+    // Remover após 4 segundos
+    setTimeout(() => {
+        feedback.style.animation = 'slideOutToRight 0.3s ease-out';
+        setTimeout(() => feedback.remove(), 300);
+    }, 4000);
+}
+
+// Adicionar animações ao CSS
+const realtimeStyles = document.createElement('style');
+realtimeStyles.textContent = `
+    @keyframes slideInFromTop {
+        from { 
+            transform: translateY(-100%);
+            opacity: 0;
+        }
+        to { 
+            transform: translateY(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slideInFromRight {
+        from { 
+            transform: translateX(100%);
+            opacity: 0;
+        }
+        to { 
+            transform: translateX(0);
+            opacity: 1;
+        }
+    }
+    
+    @keyframes slideOutToRight {
+        from { 
+            transform: translateX(0);
+            opacity: 1;
+        }
+        to { 
+            transform: translateX(100%);
+            opacity: 0;
+        }
+    }
+`;
+document.head.appendChild(realtimeStyles);
+
+// Exportar para uso global se necessário
+window.feedUtils = {
+    toggleLike,
+    loadPosts,
+    openReportModal,
+    handleReportSubmit
+};
+
+// Nexus Safe - Sistema de Denúncias
+
+// Abrir modal de denúncia
+function openReportModal(targetId, targetType) {
+    currentReportTarget = targetId;
+    currentReportType = targetType;
+    
+    if (reportModal) {
+        reportModal.classList.remove('hidden');
+        // Limpar formulário
+        if (reportForm) reportForm.reset();
+        if (reportError) reportError.style.display = 'none';
+    }
+}
+
+// Fechar modal de denúncia
+function closeReportModal() {
+    if (reportModal) {
+        reportModal.classList.add('hidden');
+        currentReportTarget = null;
+        currentReportType = null;
+    }
+}
+
+// Enviar denúncia
+async function handleReportSubmit(e) {
+    e.preventDefault();
+    
+    const reason = reportReason?.value;
+    const description = reportDescription?.value;
+    
+    if (!reason || !currentReportTarget) {
+        if (reportError) {
+            reportError.textContent = 'Selecione um motivo para a denúncia';
+            reportError.style.display = 'block';
+        }
+        return;
+    }
+    
+    try {
+        showLoading(reportForm);
+        
+        // Obter ID do dono do post
+        let reportedUserId = null;
+        if (currentReportType === 'post') {
+            const { data: postData } = await window.supabaseClient
+                .from('posts')
+                .select('user_id')
+                .eq('id', currentReportTarget)
+                .single();
+            
+            reportedUserId = postData?.user_id;
+        }
+        
+        if (!reportedUserId) {
+            throw new Error('Não foi possível identificar o usuário denunciado');
+        }
+        
+        // Criar denúncia
+        const { error } = await window.supabaseClient
+            .from('reports')
+            .insert({
+                reporter_id: currentUser.id,
+                reported_user_id: reportedUserId,
+                post_id: currentReportType === 'post' ? currentReportTarget : null,
+                reason: reason,
+                description: description || null
+            });
+        
+        if (error) throw error;
+        
+        // Mostrar sucesso
+        showUploadFeedback('Denúncia enviada com sucesso! Agradecemos sua ajuda.', 'success');
+        closeReportModal();
+        
+    } catch (error) {
+        console.error('Erro ao enviar denúncia:', error);
+        if (reportError) {
+            reportError.textContent = 'Erro ao enviar denúncia. Tente novamente.';
+            reportError.style.display = 'block';
+        }
+    } finally {
+        hideLoading(reportForm);
+    }
+}
+
+// Filtro de Conteúdo - Nexus Safe
+
+// Lista de palavras ofensivas (pode ser expandida)
+const offensiveWords = [
+    'palavrão1', 'palavrão2', 'palavrão3', // Adicionar palavras reais aqui
+    'idiota', 'burro', 'estúpido', 'imbecil',
+    'porra', 'caralho', 'puta', 'merda'
+];
+
+// Verificar se conteúdo contém palavras ofensivas
+function containsOffensiveContent(content) {
+    if (!content) return false;
+    
+    const lowerContent = content.toLowerCase();
+    return offensiveWords.some(word => lowerContent.includes(word.toLowerCase()));
+}
+
+// Mostrar alerta de conteúdo ofensivo
+function showOffensiveContentAlert() {
+    const alert = document.createElement('div');
+    alert.className = 'nexus-safe-alert';
+    alert.innerHTML = `
+        <div class="alert-content">
+            <span class="alert-icon">🛡️</span>
+            <span class="alert-text">Nexus Safe: Por favor, use uma linguagem amigável!</span>
+        </div>
+    `;
+    
+    alert.style.cssText = `
+        position: fixed;
+        top: 80px;
+        right: 20px;
+        background: linear-gradient(135deg, rgba(255, 193, 7, 0.9) 0%, rgba(255, 152, 0, 0.9) 100%);
+        color: white;
+        padding: 12px 20px;
+        border-radius: 12px;
+        font-size: 0.875rem;
+        font-weight: 600;
+        box-shadow: 0 4px 20px rgba(255, 193, 7, 0.4);
+        z-index: 1000;
+        animation: slideInFromRight 0.5s ease-out;
+        backdrop-filter: blur(10px);
+        border: 1px solid rgba(255, 193, 7, 0.3);
+    `;
+    
+    document.body.appendChild(alert);
+    
+    // Remover após 4 segundos
+    setTimeout(() => {
+        alert.style.animation = 'slideOutToRight 0.3s ease-out';
+        setTimeout(() => alert.remove(), 300);
+    }, 4000);
+}
+
+// Modificar função de envio de comentário para incluir filtro
+async function handleCommentSubmit(event) {
+    event.preventDefault();
+    
+    if (!commentText || !commentText.value.trim()) return;
+    
+    const commentContent = commentText.value.trim();
+    
+    // Verificar conteúdo ofensivo
+    if (containsOffensiveContent(commentContent)) {
+        showOffensiveContentAlert();
+        return;
+    }
+    
+    try {
+        const { error } = await window.supabaseClient
+            .from('comments')
+            .insert({
+                post_id: currentPostId,
+                user_id: currentUser.id,
+                content: commentContent
+            });
+        
+        if (error) throw error;
+        
+        // Limpar campo
+        commentText.value = '';
+        
+        // Recarregar comentários
+        await loadComments();
+        
+        // Atualizar contador no post
+        const post = posts.find(p => p.id === currentPostId);
+        if (post) {
+            post.comments_count = (post.comments_count || 0) + 1;
+            renderPosts();
+        }
+        
+    } catch (error) {
+        console.error('Erro ao enviar comentário:', error);
+        alert('Erro ao enviar comentário. Tente novamente.');
+    }
+}
+
+// Modificar função de criação de post para incluir filtro
+async function handleNewPost(e) {
+    e.preventDefault();
+    
+    const caption = document.getElementById('postCaption')?.value;
+    const mediaUrl = document.getElementById('mediaUrl')?.value;
+    const mediaType = document.getElementById('mediaType')?.value;
+
+    // Permitir posts só com texto ou com mídia
+    if (!caption && !mediaUrl) {
+        showUploadFeedback('Adicione um texto ou uma mídia para postar', 'error');
+        return;
+    }
+    
+    // Verificar conteúdo ofensivo no caption
+    if (caption && containsOffensiveContent(caption)) {
+        showOffensiveContentAlert();
+        return;
+    }
+
+    try {
+        showLoading(newPostForm);
+
+        const { data, error } = await window.supabaseClient
+            .from('posts')
+            .insert({
+                user_id: currentUser.id,
+                media_url: mediaUrl || null,
+                media_type: mediaType || null,
+                caption: caption || null
+            })
+            .select()
+            .single();
+
+        if (error) throw error;
+
+        closeNewPostModal();
+        await loadPosts(true); // Recarregar posts do início
+        showUploadFeedback('Post publicado com sucesso!', 'success');
+    } catch (error) {
+        console.error('Erro ao criar post:', error);
+        showUploadFeedback('Erro ao criar post. Tente novamente.', 'error');
+    } finally {
+        hideLoading(newPostForm);
+    }
+}
+/ /   C a r r e g a r   i n f o r m a � � e s   d e   q u e m   c u r t i u   u m   p o s t   e s p e c � f i c o 
+ a s y n c   f u n c t i o n   l o a d L i k e s I n f o ( p o s t I d )   { 
+         t r y   { 
+                 c o n s t   {   d a t a ,   e r r o r   }   =   a w a i t   w i n d o w . s u p a b a s e C l i e n t 
+                         . f r o m ( ' l i k e s ' ) 
+                         . s e l e c t ( \ 
+                                 p r o f i l e s :   u s e r _ i d   ( 
+                                         i d , 
+                                         n o m e , 
+                                         a v a t a r _ u r l 
+                                 ) 
+                         \ ) 
+                         . e q ( ' p o s t _ i d ' ,   p o s t I d ) 
+                         . o r d e r ( ' c r e a t e d _ a t ' ,   {   a s c e n d i n g :   f a l s e   } ) 
+                         . l i m i t ( 1 ) ; 
+ 
+                 i f   ( e r r o r )   t h r o w   e r r o r ; 
+                 
+                 c o n s t   l i k e s I n f o   =   d o c u m e n t . g e t E l e m e n t B y I d ( \ l i k e s - i n f o - \ \ ) ; 
+                 i f   ( l i k e s I n f o   & &   d a t a . l e n g t h   >   0 )   { 
+                         c o n s t   l a t e s t L i k e   =   d a t a [ 0 ] . p r o f i l e s ; 
+                         c o n s t   p o s t   =   p o s t s . f i n d ( p   = >   p . i d   = = =   p o s t I d ) ; 
+                         c o n s t   o t h e r C o u n t   =   M a t h . m a x ( 0 ,   ( p o s t ? . l i k e s _ c o u n t   | |   0 )   -   1 ) ; 
+                         
+                         l i k e s I n f o . i n n e r H T M L   =   \ 
+                                 < d i v   c l a s s = \  
+ l i k e s - i n f o - c o n t e n t \ > 
+                                         < i m g   s r c = \ \ \   a l t = \ A v a t a r \   c l a s s = \ l i k e s - a v a t a r \ > 
+                                         < s p a n   c l a s s = \ l i k e s - t e x t \ > 
+                                                 < s t r o n g > \ < / s t r o n g >   e   m a i s   \   \   c u r t i r a m   i s s o 
+                                         < / s p a n > 
+                                 < / d i v > 
+                         \ ; 
+                         l i k e s I n f o . s t y l e . d i s p l a y   =   ' b l o c k ' ; 
+                 } 
+         }   c a t c h   ( e r r o r )   { 
+                 c o n s o l e . e r r o r ( ' E r r o   a o   c a r r e g a r   i n f o r m a � � e s   d e   l i k e s : ' ,   e r r o r ) ; 
+         } 
+ }  
+ 
+ / /   C a r r e g a r   i n f o r m a � � e s   d e   q u e m   c u r t i u   u m   p o s t   e s p e c � f i c o 
+ a s y n c   f u n c t i o n   l o a d L i k e s I n f o ( p o s t I d )   { 
+         t r y   { 
+                 c o n s t   {   d a t a ,   e r r o r   }   =   a w a i t   w i n d o w . s u p a b a s e C l i e n t 
+                         . f r o m (  
+ \ l i k e s \ ' ) 
+                         . s e l e c t ( ` 
+                                 p r o f i l e s :   u s e r _ i d   ( 
+                                         i d , 
+                                         n o m e , 
+                                         a v a t a r _ u r l 
+                                 ) 
+                         ` ) 
+                         . e q ( \ p o s t _ i d \ ' ,   p o s t I d ) 
+                         . o r d e r ( \ c r e a t e d _ a t \ ' ,   {   a s c e n d i n g :   f a l s e   } ) 
+                         . l i m i t ( 1 ) ; 
+ 
+                 i f   ( e r r o r )   t h r o w   e r r o r ; 
+                 
+                 c o n s t   l i k e s I n f o   =   d o c u m e n t . g e t E l e m e n t B y I d ( ` l i k e s - i n f o - $ { p o s t I d } ` ) ; 
+                 i f   ( l i k e s I n f o   & &   d a t a . l e n g t h   >   0 )   { 
+                         c o n s t   l a t e s t L i k e   =   d a t a [ 0 ] . p r o f i l e s ; 
+                         c o n s t   p o s t   =   p o s t s . f i n d ( p   = >   p . i d   = = =   p o s t I d ) ; 
+                         c o n s t   o t h e r C o u n t   =   M a t h . m a x ( 0 ,   ( p o s t ? . l i k e s _ c o u n t   | |   0 )   -   1 ) ; 
+                         
+                         l i k e s I n f o . i n n e r H T M L   =   ` 
+                                 < d i v   c l a s s = " l i k e s - i n f o - c o n t e n t " > 
+                                         < i m g   s r c = " $ { l a t e s t L i k e . a v a t a r _ u r l   | |   \ d a t a : i m a g e / s v g + x m l  
+ % 3 C s v g  
+ x m l n s = \ h t t p : / / w w w . w 3 . o r g / 2 0 0 0 / s v g \  
+ w i d t h = \ 2 4 \  
+ h e i g h t = \ 2 4 \  
+ v i e w B o x = \ 0   0   2 4   2 4 \ % 3 E % 3 C r e c t  
+ w i d t h = \ 2 4 \  
+ h e i g h t = \ 2 4 \  
+ f i l l = \ % 2 3 3 9 F F 1 4 \ / % 3 E % 3 C t e x t  
+ x = \ 5 0 % 2 5 \  
+ y = \ 5 0 % 2 5 \  
+ t e x t - a n c h o r = \ m i d d l e \  
+ d y = \ . 3 e m \  
+ f i l l = \ w h i t e \  
+ f o n t - f a m i l y = \ A r i a l \  
+ f o n t - s i z e = \ 1 2 \ % 3 E ? % 3 C / t e x t % 3 E % 3 C / s v g % 3 E \ ' } "   a l t = " A v a t a r "   c l a s s = " l i k e s - a v a t a r " > 
+                                         < s p a n   c l a s s = " l i k e s - t e x t " > 
+                                                 < s t r o n g > $ { l a t e s t L i k e . n o m e } < / s t r o n g >   e   m a i s   $ { o t h e r C o u n t }   $ { o t h e r C o u n t   = = =   1   ?   \ p e s s o a \ '   :   \ p e s s o a s \ ' }   c u r t i r a m   i s s o 
+                                         < / s p a n > 
+                                 < / d i v > 
+                         ` ; 
+                         l i k e s I n f o . s t y l e . d i s p l a y   =   \ b l o c k \ ' ; 
+                 } 
+         }   c a t c h   ( e r r o r )   { 
+                 c o n s o l e . e r r o r ( \ E r r o  
+ a o  
+ c a r r e g a r  
+ i n f o r m a � � e s  
+ d e  
+ l i k e s : \ ' ,   e r r o r ) ; 
+         } 
+ }  
+ 

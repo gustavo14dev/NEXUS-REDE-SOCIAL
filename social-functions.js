@@ -1,0 +1,133 @@
+// Funções de feedback social para serem adicionadas ao feed.js
+
+// Carregar informações de quem curtiu um post específico
+async function loadLikesInfo(postId) {
+    try {
+        const { data, error } = await window.supabaseClient
+            .from('likes')
+            .select(`
+                profiles: user_id (
+                    id,
+                    nome,
+                    avatar_url
+                )
+            `)
+            .eq('post_id', postId)
+            .order('created_at', { ascending: false })
+            .limit(1);
+
+        if (error) throw error;
+        
+        const likesInfo = document.getElementById(`likes-info-${postId}`);
+        if (likesInfo && data.length > 0) {
+            const latestLike = data[0].profiles;
+            const otherCount = Math.max(0, (posts.find(p => p.id === postId)?.likes_count || 0) - 1);
+            
+            likesInfo.innerHTML = `
+                <div class="likes-info-content">
+                    <img src="${latestLike.avatar_url || 'data:image/svg+xml,%3Csvg xmlns=\'http://www.w3.org/2000/svg\' width=\'24\' height=\'24\' viewBox=\'0 0 24 24\'%3E%3Crect width=\'24\' height=\'24\' fill=\'%2339FF14\'/%3E%3Ctext x=\'50%25\' y=\'50%25\' text-anchor=\'middle\' dy=\'.3em\' fill=\'white\' font-family=\'Arial\' font-size=\'12\'%3E?%3C/text%3E%3C/svg%3E'}" alt="Avatar" class="likes-avatar">
+                    <span class="likes-text">
+                        <strong>${latestLike.nome}</strong> e mais ${otherCount} ${otherCount === 1 ? 'pessoa' : 'pessoas'} curtiram isso
+                    </span>
+                </div>
+            `;
+            likesInfo.style.display = 'block';
+        }
+    } catch (error) {
+        console.error('Erro ao carregar informações de likes:', error);
+    }
+}
+
+// Atualizar função renderPosts para ser async e carregar informações de quem curtiu
+async function renderPosts() {
+    if (!postsFeed) return;
+    
+    if (posts.length === 0) {
+        postsFeed.innerHTML = `
+            <div class="empty-feed">
+                <div class="empty-icon">📝</div>
+                <h3 class="empty-title">Nenhum post ainda</h3>
+                <p class="empty-description">Seja o primeiro a compartilhar algo!</p>
+            </div>
+        `;
+        return;
+    }
+    
+    postsFeed.innerHTML = posts.map(post => createPostHTML(post)).join('');
+    
+    // Carregar informações de quem curtiu para posts com likes
+    for (const post of posts) {
+        if (post.likes_count > 0) {
+            await loadLikesInfo(post.id);
+        }
+    }
+}
+
+// Corrigir função loadUserLikes para usar sintaxe correta do Supabase
+async function loadUserLikes() {
+    try {
+        const { data, error } = await window.supabaseClient
+            .from('likes')
+            .select('post_id')
+            .eq('user_id', currentUser.id);
+
+        if (error) throw error;
+
+        userLikes = new Set(data.map(like => like.post_id));
+    } catch (error) {
+        console.error('Erro ao carregar likes:', error);
+    }
+}
+
+// Corrigir função toggleLike para usar .match() em vez de .eq() múltiplos
+async function toggleLike(postId) {
+    try {
+        const isLiked = userLikes.has(postId);
+        
+        if (isLiked) {
+            // Remover like
+            const { error } = await window.supabaseClient
+                .from('likes')
+                .delete()
+                .match({
+                    user_id: currentUser.id,
+                    post_id: postId
+                });
+            
+            if (error) throw error;
+            
+            userLikes.delete(postId);
+            
+            // Atualizar contador no post
+            const post = posts.find(p => p.id === postId);
+            if (post) {
+                post.likes_count = Math.max(0, (post.likes_count || 0) - 1);
+            }
+        } else {
+            // Adicionar like
+            const { error } = await window.supabaseClient
+                .from('likes')
+                .insert({
+                    user_id: currentUser.id,
+                    post_id: postId
+                });
+            
+            if (error) throw error;
+            
+            userLikes.add(postId);
+            
+            // Atualizar contador no post
+            const post = posts.find(p => p.id === postId);
+            if (post) {
+                post.likes_count = (post.likes_count || 0) + 1;
+            }
+        }
+        
+        // Re-renderizar posts para atualizar UI
+        renderPosts();
+        
+    } catch (error) {
+        console.error('Erro ao fazer toggle like:', error);
+        alert('Erro ao curtir/descurtir post. Tente novamente.');
+    }
+}
